@@ -158,12 +158,40 @@ function renderSetups() {
     const approvedCount = allSetups.filter(s => s.status === 'APPROVED').length;
     setupCountBadge.innerText = `${approvedCount} APPROVED`;
 
+    // Update Hero Live Radar Banner
+    const heroCountText = document.getElementById('heroSignalCountText');
+    const heroSubText = document.getElementById('heroSignalSubText');
+    const heroBanner = document.getElementById('liveSignalAlertHero');
+
+    if (approvedCount > 0) {
+        if (heroCountText) heroCountText.innerHTML = `🚨 <span class="text-green" style="font-weight: 800;">${approvedCount} LIVE APPROVED SIGNALS</span> READY TO TRADE!`;
+        if (heroSubText) heroSubText.innerHTML = `15-AI-Agent Committee has confirmed institutional consensus (≥ 70%). Click any card below to view Candlestick Chart & exact levels.`;
+        if (heroBanner) {
+            heroBanner.style.borderColor = '#10b981';
+            heroBanner.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(0, 242, 254, 0.1))';
+        }
+    } else {
+        if (heroCountText) heroCountText.innerHTML = `🟢 15 AGENTS LIVE SCANNING | STANDING ASIDE IN CONSOLIDATION`;
+        if (heroSubText) heroSubText.innerHTML = `Markets are currently range-bound. 0 forced trades. System is actively monitoring 2,605 NSE stocks for high-conviction breakouts.`;
+        if (heroBanner) {
+            heroBanner.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            heroBanner.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(0, 242, 254, 0.04))';
+        }
+    }
+
+    // Play chime on new signal discovery
+    if (window._prevApprovedCount !== undefined && approvedCount > window._prevApprovedCount) {
+        playTradeAlertChime();
+    }
+    window._prevApprovedCount = approvedCount;
+
     if (filtered.length === 0) {
         setupsGrid.innerHTML = `
-            <div class="loading-state">
-                <i class="fa-solid fa-filter fa-2x text-muted" style="margin-bottom: 12px;"></i>
-                <p>No setups matching filter "${currentFilter}".</p>
-                <small class="text-muted">Click "SCAN NOW" or wait for next automatic sweep cycle.</small>
+            <div class="loading-state" style="padding: 40px 20px; border: 1px dashed var(--border-color); border-radius: 8px;">
+                <i class="fa-solid fa-shield-halved fa-3x text-green" style="margin-bottom: 14px;"></i>
+                <h3 style="color: var(--text-primary); margin-bottom: 6px;">No Active Setups Matching Filter "${currentFilter}"</h3>
+                <p style="color: var(--text-muted); font-size: 13px;">AI agents are actively protecting capital. In sideways consolidation, no forced trades are triggered.</p>
+                <small class="text-cyan">Search any stock above (e.g. HDFCBANK, RELIANCE) to inspect its chart & 100-trade backtest anytime!</small>
             </div>
         `;
         return;
@@ -178,11 +206,11 @@ function renderSetups() {
         const fillClass = isBullish ? 'fill-green' : (isBearish ? 'fill-red' : 'fill-yellow');
 
         return `
-            <div class="setup-card ${cardClass}" onclick="openSetupInspector(${idx})">
+            <div class="setup-card ${cardClass}" onclick="openChartForTicket(${idx})" style="cursor: pointer; position: relative;">
                 <div class="card-top">
                     <div class="symbol-group">
-                        <span class="symbol-name">${s.symbol}</span>
-                        <span class="instrument-name">${s.instrument}</span>
+                        <span class="symbol-name" style="font-size: 18px; color: var(--primary-cyan);">${s.symbol}</span>
+                        <span class="instrument-name" style="color: var(--neon-purple);">${s.instrument}</span>
                     </div>
                     <span class="action-pill ${pillClass}">
                         ${isBullish ? '<i class="fa-solid fa-arrow-trend-up"></i>' : (isBearish ? '<i class="fa-solid fa-arrow-trend-down"></i>' : '<i class="fa-solid fa-minus"></i>')}
@@ -217,19 +245,28 @@ function renderSetups() {
                     </div>
                 </div>
 
-                <div class="card-footer" style="flex-wrap: wrap; gap: 8px;">
+                <div class="card-footer" style="flex-wrap: wrap; gap: 8px; margin-top: 10px;">
                     <span><i class="fa-solid fa-scale-balanced"></i> R:R ${s.risk_reward}</span>
-                    <span class="${isApproved ? 'text-green' : 'text-muted'}">
+                    <span class="${isApproved ? 'text-green' : 'text-muted'} font-bold">
                         ${isApproved ? '<i class="fa-solid fa-circle-check"></i> INSTITUTIONAL PASS' : '<i class="fa-solid fa-eye"></i> WATCHLIST'}
                     </span>
-                    <button class="btn-chart-inspect" onclick="event.stopPropagation(); openChartForTicket(${idx})">
-                        <i class="fa-solid fa-chart-candlestick"></i> View Chart & Logic
+                    <button class="btn btn-primary btn-sm" style="width: 100%; margin-top: 6px; font-weight: 600;" onclick="event.stopPropagation(); openChartForTicket(${idx})">
+                        <i class="fa-solid fa-chart-candlestick"></i> View Chart & 100-Trade Backtest
                     </button>
                 </div>
             </div>
         `;
     }).join('');
 }
+
+window.toggleAudioAlert = function() {
+    isAudioEnabled = !isAudioEnabled;
+    const heroIcon = document.getElementById('heroSoundIcon');
+    const heroLabel = document.getElementById('heroSoundLabel');
+    if (heroIcon) heroIcon.className = isAudioEnabled ? 'fa-solid fa-bell text-yellow' : 'fa-solid fa-bell-slash text-muted';
+    if (heroLabel) heroLabel.innerText = isAudioEnabled ? 'Audio Alert: ON' : 'Audio Alert: OFF';
+    if (isAudioEnabled) playTradeAlertChime();
+};
 
 // 3. Render Watchlist Scanner Table
 function renderScannerTable() {

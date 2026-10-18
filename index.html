@@ -142,42 +142,42 @@
             <div id="workspaceSearchDropdown" class="search-dropdown-menu" style="top: 100%; left: 16px; width: calc(100% - 32px);"></div>
         </div>
 
-        <!-- Navigation Tabs -->
+        <!-- Clean Navigation Tabs (Organized & Distinct) -->
         <div class="tab-bar">
-            <button class="tab-btn active" data-tab="tab-smc">
-                <i class="fa-solid fa-shapes text-purple"></i> Institutional Strategies Hub
-                <span class="badge badge-purple" id="smcTotalBadge">8 ACTIVE</span>
+            <button class="tab-btn active" data-tab="tab-setups">
+                <i class="fa-solid fa-bullseye text-neon"></i> 🚨 Live Signals & Alerts
+                <span class="badge badge-cyan" id="setupCountBadge">0 APPROVED</span>
             </button>
             <button class="tab-btn" data-tab="tab-news">
-                <i class="fa-solid fa-newspaper text-neon"></i> Live News Catalysts
+                <i class="fa-solid fa-newspaper text-neon"></i> 📰 Agent 8: News Intelligence
                 <span class="badge badge-cyan" id="newsTotalBadge">LIVE WIRE</span>
             </button>
-            <button class="tab-btn" data-tab="tab-autotrade">
-                <i class="fa-solid fa-robot text-cyan"></i> Upstox Auto-Trader (₹20k)
-                <span class="badge badge-cyan" id="autoTradeTabBadge">₹20,000</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-backtest">
-                <i class="fa-solid fa-chart-column text-yellow"></i> 100-Trade Backtest & Ratings
-                <span class="badge badge-yellow">⭐⭐⭐⭐⭐ 78% AVG</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-setups">
-                <i class="fa-solid fa-crosshairs"></i> High-Conviction Setups 
-                <span class="badge" id="setupCountBadge">0</span>
+            <button class="tab-btn" data-tab="tab-smc">
+                <i class="fa-solid fa-shapes text-purple"></i> 🎯 8 Alpha Strategies
+                <span class="badge badge-purple" id="smcTotalBadge">8 STRATEGIES</span>
             </button>
             <button class="tab-btn" data-tab="tab-agents">
-                <i class="fa-solid fa-users-viewfinder"></i> 15 AI Agents Matrix
+                <i class="fa-solid fa-users-viewfinder text-cyan"></i> 🤖 15 AI Agents Council
                 <span class="badge badge-cyan">15 LIVE</span>
             </button>
+            <button class="tab-btn" data-tab="tab-backtest">
+                <i class="fa-solid fa-chart-column text-yellow"></i> 📈 100-Trade Backtest Hub
+                <span class="badge badge-yellow">⭐⭐⭐⭐ 78%</span>
+            </button>
+            <button class="tab-btn" data-tab="tab-autotrade">
+                <i class="fa-solid fa-robot text-cyan"></i> ⚙️ Auto-Trader (₹20k)
+                <span class="badge badge-cyan" id="autoTradeTabBadge">₹20,000</span>
+            </button>
             <button class="tab-btn" data-tab="tab-scanner">
-                <i class="fa-solid fa-table-list"></i> Full Watchlist Scanner
+                <i class="fa-solid fa-table-list"></i> 📊 Watchlist Scanner
             </button>
             <button class="tab-btn" data-tab="tab-logs">
-                <i class="fa-solid fa-terminal"></i> Agent Audit Logs
+                <i class="fa-solid fa-terminal"></i> 📋 Audit Logs
             </button>
         </div>
 
         <!-- Tab 0: Institutional Strategies Hub (Dedicated Sections) -->
-        <section class="tab-pane active" id="tab-smc">
+        <section class="tab-pane" id="tab-smc">
             <div class="section-header">
                 <div>
                     <h2><i class="fa-solid fa-shapes text-purple"></i> Institutional Alpha Strategies</h2>
@@ -449,16 +449,40 @@
             </div>
         </section>
 
-        <!-- Tab 1: High Conviction Setups Grid -->
-        <section class="tab-pane" id="tab-setups">
+        <!-- Tab 1: Live Signals & Alpha Alert Radar -->
+        <section class="tab-pane active" id="tab-setups">
+            <!-- Hero Live Signal Radar Notification Banner -->
+            <div class="live-signal-alert-hero" id="liveSignalAlertHero" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(0, 242, 254, 0.08)); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="live-pulse-dot" style="background: #10b981; width: 12px; height: 12px; box-shadow: 0 0 10px #10b981;"></span>
+                    <div>
+                        <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px;">
+                            <span id="heroSignalCountText">🚨 LIVE SIGNAL RADAR: 15 AGENTS ACTIVE</span>
+                            <span class="badge badge-cyan" id="heroScanTfText">5M TIMEFRAME</span>
+                        </div>
+                        <p style="font-size: 11px; color: var(--text-muted); margin: 0; font-family: var(--font-mono);" id="heroSignalSubText">
+                            Live market mein jaise hi kisi stock par 15 agents ka 70%+ consensus banega, uska Buy/Sell alert yahan audio chime ke sath aayega.
+                        </p>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" id="btnSoundAlertToggle" onclick="toggleAudioAlert()">
+                        <i class="fa-solid fa-bell text-yellow" id="heroSoundIcon"></i> <span id="heroSoundLabel">Audio Alert: ON</span>
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="btnRunScan.click()">
+                        <i class="fa-solid fa-arrows-rotate"></i> <span>Scan Now</span>
+                    </button>
+                </div>
+            </div>
+
             <div class="section-header">
                 <div>
-                    <h2><i class="fa-solid fa-bullseye text-neon"></i> Approved Institutional Setups</h2>
-                    <p class="subtitle">Setups verified by Agent 14 (Master Decision Arbiter) with ≥ 70% committee consensus.</p>
+                    <h2><i class="fa-solid fa-bullseye text-neon"></i> Approved Institutional Signals (Live Feed)</h2>
+                    <p class="subtitle">Har signal par click karke aap uska Candlestick Chart aur 100-Trade Backtest Scorecard dekh sakte hain.</p>
                 </div>
                 <div class="filter-controls">
                     <button class="filter-chip active" data-filter="ALL">All Setups</button>
-                    <button class="filter-chip" data-filter="APPROVED">Approved Only</button>
+                    <button class="filter-chip" data-filter="APPROVED">Approved Only (Ready to Trade)</button>
                     <button class="filter-chip" data-filter="BULLISH">Bullish (Calls)</button>
                     <button class="filter-chip" data-filter="BEARISH">Bearish (Puts)</button>
                 </div>
@@ -965,6 +989,6 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/app.js?v=3.5"></script>
+    <script src="/static/app.js?v=3.6"></script>
 </body>
 </html>
