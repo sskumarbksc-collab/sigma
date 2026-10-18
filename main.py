@@ -1,5 +1,7 @@
 import asyncio
 import os
+import shutil
+import sys
 import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks, HTTPException
@@ -8,6 +10,36 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+
+# --- SELF-HEALING FLAT UPLOAD FIX ---
+_app_root = os.path.dirname(os.path.abspath(__file__))
+
+# 1. Auto-create 'agents' folder if files were uploaded to root
+_agents_dir = os.path.join(_app_root, "agents")
+os.makedirs(_agents_dir, exist_ok=True)
+_agent_files = ["__init__.py", "base_agent.py", "layer1_market.py", "layer2_tech.py", 
+                "layer3_macro.py", "layer4_strategy.py", "layer5_master.py"]
+for _af in _agent_files:
+    _src = os.path.join(_app_root, _af)
+    _dst = os.path.join(_agents_dir, _af)
+    if os.path.exists(_src) and not os.path.exists(_dst):
+        try:
+            shutil.copy2(_src, _dst)
+        except Exception:
+            pass
+
+# 2. Auto-create 'static' folder if files were uploaded to root
+_static_dir = os.path.join(_app_root, "static")
+os.makedirs(_static_dir, exist_ok=True)
+_static_files = ["index.html", "app.js", "style.css"]
+for _sf in _static_files:
+    _src = os.path.join(_app_root, _sf)
+    _dst = os.path.join(_static_dir, _sf)
+    if os.path.exists(_src) and not os.path.exists(_dst):
+        try:
+            shutil.copy2(_src, _dst)
+        except Exception:
+            pass
 
 from config import BASE_DIR, UPSTOX_CONFIG
 from engine import TradingEngine
