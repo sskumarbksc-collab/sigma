@@ -1283,29 +1283,67 @@ async function openStrategyChart(symbol, strategyTitle, setupData) {
         changeElem.innerText = `${isUp ? '+' : ''}${data.change_pct?.toFixed(2)}%`;
         changeElem.className = `pulse-change ${isUp ? 'bullish' : 'bearish'}`;
 
-        // Merge backend matched setup if setupData was null
-        const activeSetup = setupData || data.strategy_setup || data.ticket_setup || {
-            entry: data.ltp,
-            stop_loss: isUp ? Math.round((data.ltp - (data.indicators.atr || 10)) * 100) / 100 : Math.round((data.ltp + (data.indicators.atr || 10)) * 100) / 100,
-            target: isUp ? Math.round((data.ltp + ((data.indicators.atr || 10) * 2.5)) * 100) / 100 : Math.round((data.ltp - ((data.indicators.atr || 10) * 2.5)) * 100) / 100,
-            risk_reward: "1:2.5",
-            rationale: `Live candlestick tracking for ${cleanSym} on ${currentChartTimeframe.toUpperCase()} timeframe.`
-        };
+        // Check if this stock actually has a verified institutional signal
+        const hasSignal = !!(setupData || (data.strategy_setup && data.strategy_setup.action) || (data.ticket_setup && data.ticket_setup.status === 'APPROVED'));
+        const activeSetup = setupData || data.strategy_setup || (data.ticket_setup && data.ticket_setup.status === 'APPROVED' ? data.ticket_setup : null);
 
-        // Numbers Strip
-        document.getElementById('chartModalEntry').innerText = `₹${activeSetup.entry}`;
-        document.getElementById('chartModalStopLoss').innerText = `₹${activeSetup.stop_loss}`;
-        document.getElementById('chartModalTarget').innerText = `₹${activeSetup.target || activeSetup.target1 || (activeSetup.entry + 20)}`;
-        document.getElementById('chartModalRR').innerText = activeSetup.risk_reward || '1:2.5';
+        const stratBadge = document.getElementById('chartModalStrategyBadge');
+        const actionPill = document.getElementById('chartModalActionPill');
 
-        // Calculate quantity & risk for ₹20k capital (Max risk 1.5% = ₹300)
-        const perShareRisk = Math.max(0.5, Math.abs(activeSetup.entry - activeSetup.stop_loss));
-        const calcQty = Math.max(1, Math.floor(300 / perShareRisk));
-        document.getElementById('chartModalQty').innerText = `${calcQty} Shares`;
-        document.getElementById('chartModalRiskAmt').innerText = `₹${Math.round(calcQty * perShareRisk)}`;
+        if (hasSignal && activeSetup) {
+            stratBadge.innerText = activeSetup.strategy_name || 'INSTITUTIONAL SETUP';
+            stratBadge.className = 'badge badge-purple';
 
-        // Rationale & Logic text
-        document.getElementById('chartModalRationale').innerText = activeSetup.rationale || 'Institutional price action setup identified with clear displacement and multi-agent alignment.';
+            const isBull = (activeSetup.direction || activeSetup.action || '').toUpperCase().includes('BUY') || (activeSetup.direction || '').toUpperCase().includes('BULL');
+            actionPill.innerHTML = isBull ? '<i class="fa-solid fa-arrow-trend-up"></i> BUY CALL / LONG' : '<i class="fa-solid fa-arrow-trend-down"></i> BUY PUT / SHORT';
+            actionPill.className = `action-pill ${isBull ? 'bullish' : 'bearish'}`;
+            actionPill.style.background = '';
+            actionPill.style.color = '';
+            actionPill.style.borderColor = '';
+
+            // Numbers Strip
+            document.getElementById('chartModalEntry').innerText = `₹${activeSetup.entry}`;
+            document.getElementById('chartModalStopLoss').innerText = `₹${activeSetup.stop_loss}`;
+            document.getElementById('chartModalTarget').innerText = `₹${activeSetup.target || activeSetup.target1 || (activeSetup.entry + 20)}`;
+            document.getElementById('chartModalRR').innerText = activeSetup.risk_reward || '1:2.5';
+
+            // Calculate quantity & risk for ₹20k capital (Max risk 1.5% = ₹300)
+            const perShareRisk = Math.max(0.5, Math.abs(activeSetup.entry - activeSetup.stop_loss));
+            const calcQty = Math.max(1, Math.floor(300 / perShareRisk));
+            document.getElementById('chartModalQty').innerText = `${calcQty} Shares`;
+            document.getElementById('chartModalRiskAmt').innerText = `₹${Math.round(calcQty * perShareRisk)}`;
+
+            // Rationale & Logic text
+            document.getElementById('chartModalRationale').innerHTML = `
+                <strong style="color: var(--primary-cyan);"><i class="fa-solid fa-circle-check"></i> ${activeSetup.pattern_stage || 'Institutional Signal Confirmed'}:</strong><br>
+                ${activeSetup.rationale || 'High-probability institutional price action detected with confirmed displacement.'}
+            `;
+        } else {
+            // NO ACTIVE SIGNAL - RANGE BOUND / CONSOLIDATION
+            stratBadge.innerText = 'CONSOLIDATION / NO SIGNAL';
+            stratBadge.className = 'badge badge-outline';
+
+            actionPill.innerHTML = '<i class="fa-solid fa-circle-pause"></i> NO ACTIVE SIGNAL (WAIT)';
+            actionPill.className = 'action-pill';
+            actionPill.style.background = 'rgba(100, 116, 139, 0.2)';
+            actionPill.style.color = '#94a3b8';
+            actionPill.style.border = '1px solid #475569';
+
+            document.getElementById('chartModalEntry').innerText = `₹${data.ltp} (LTP)`;
+            document.getElementById('chartModalStopLoss').innerText = '--';
+            document.getElementById('chartModalTarget').innerText = '--';
+            document.getElementById('chartModalRR').innerText = 'STAND ASIDE';
+            document.getElementById('chartModalQty').innerText = '0 Shares';
+            document.getElementById('chartModalRiskAmt').innerText = '₹0 (Capital Safe)';
+
+            document.getElementById('chartModalRationale').innerHTML = `
+                <strong style="color: #f59e0b;"><i class="fa-solid fa-triangle-exclamation"></i> No Verified Strategy Triggered Currently:</strong><br>
+                ${cleanSym} is currently moving in a neutral range or consolidation. 
+                The 15 AI Agents have evaluated market breadth, volume, and structure: 
+                <strong>No institutional displacement (BOS), FVG retest, or Order Block has formed on this timeframe.</strong><br>
+                <em>Rule: Disciplined algorithmic traders never force trades in sideways consolidation. AI agents are monitoring for a clean breakout!</em>
+            `;
+        }
 
         // Live News Box
         const newsBox = document.getElementById('chartModalNewsCatalyst');
@@ -1409,7 +1447,7 @@ async function openStrategyChart(symbol, strategyTitle, setupData) {
         // Render Candlestick Chart on HTML5 Canvas
         const canvas = document.getElementById('strategyCanvas');
         if (canvas && data.candles && data.candles.length > 0) {
-            renderCandlestickChart(canvas, data.candles, activeSetup, data.indicators);
+            renderCandlestickChart(canvas, data.candles, hasSignal ? activeSetup : null, data.indicators);
         }
     } catch (err) {
         console.error('Error opening chart modal:', err);

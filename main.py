@@ -176,10 +176,27 @@ def get_symbol_chart(symbol: str, timeframe: Optional[str] = None):
             ticket_setup = ticket
             break
 
-    # 3. Match from breaking news
+    # 3. If not in cached watchlist, run on-demand live 15-agent evaluation!
+    if not active_strat and not ticket_setup:
+        try:
+            pulse = engine.data_feed.get_market_pulse()
+            live_ticket = engine.scan_single_symbol(sym, pulse, timeframe=tf)
+            if live_ticket and live_ticket.get("status") == "APPROVED":
+                ticket_setup = live_ticket
+                smc_res = live_ticket.get("smc_strategies", {})
+                for k, v in smc_res.items():
+                    if v:
+                        active_strat = v
+                        break
+        except Exception as e:
+            print(f"On-demand evaluation note for {sym}: {e}")
+
+    has_active_signal = (active_strat is not None) or (ticket_setup is not None and ticket_setup.get("status") == "APPROVED")
+
+    # 4. Match from breaking news
     news_info = market_news_service.get_news_sentiment_for_symbol(sym)
 
-    # 4. Compute 100-trade backtest specifically for this stock on its active strategy
+    # 5. Compute 100-trade backtest specifically for this stock on its active strategy
     strat_name = active_strat.get("strategy_name", "Smart Money Concept") if active_strat else "Smart Money Concept"
     stock_backtest = engine.backtester.backtest_single_stock_strategy(
         symbol=clean_code,
@@ -198,6 +215,7 @@ def get_symbol_chart(symbol: str, timeframe: Optional[str] = None):
         "prev_close": chart_data["prev_close"],
         "indicators": chart_data["indicators"],
         "candles": chart_data["candles"],
+        "has_active_signal": has_active_signal,
         "strategy_setup": active_strat,
         "ticket_setup": ticket_setup,
         "news": news_info,
