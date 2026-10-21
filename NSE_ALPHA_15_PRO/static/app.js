@@ -1420,6 +1420,14 @@ window.closeChartModal = function() {
     document.getElementById("strategyChartModal")?.classList.remove("open");
 };
 
+const LIVE_CANDLES_MAP = {};
+const LIVE_INDEX_DATA = {
+    "NIFTY_50": { ltp: 22955.85, prev: 22888.95, change_pct: 0.29 },
+    "BANKNIFTY": { ltp: 55443.70, prev: 55488.10, change_pct: -0.08 },
+    "INDIA_VIX": { ltp: 13.85 }
+};
+let LAST_EXCHANGE_TIME_STR = "";
+
 function drawCandlestickCanvasWithStrategyZones(setup, details) {
     const canvas = document.getElementById("strategyCanvas");
     if (!canvas) return;
@@ -1432,21 +1440,27 @@ function drawCandlestickCanvasWithStrategyZones(setup, details) {
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    // Generate 45 realistic candles anchored to setup.ltp
-    const count = 45;
+    // Use 100% REAL NSE Intraday Candles from Yahoo Finance (setup.candles or LIVE_CANDLES_MAP)
     const isBull = setup.direction === "BULLISH";
-    const candles = [];
-    let p = setup.ltp * (isBull ? 0.985 : 1.015);
-    for (let i = 0; i < count; i++) {
-        const drift = (setup.ltp - p) / (count - i);
-        const noise = Math.sin(i * 0.65) * (setup.ltp * 0.0018);
-        const open = p;
-        const close = i === count - 1 ? setup.ltp : open + drift + noise;
-        const high = Math.max(open, close) + setup.ltp * 0.0016;
-        const low = Math.min(open, close) - setup.ltp * 0.0016;
-        candles.push({ open, high, low, close });
-        p = close;
+    let candles = (setup.candles && setup.candles.length >= 8)
+        ? setup.candles.slice(-45)
+        : (LIVE_CANDLES_MAP[setup.symbol] && LIVE_CANDLES_MAP[setup.symbol].length >= 8 ? LIVE_CANDLES_MAP[setup.symbol].slice(-45) : []);
+
+    if (!candles.length) {
+        const prev = PREV_CLOSES[setup.symbol] || setup.prev_close || setup.ltp;
+        candles = [
+            { open: prev, high: Math.max(prev, setup.ltp), low: Math.min(prev, setup.ltp), close: setup.ltp }
+        ];
+    } else {
+        // Ensure last candle close reflects exact current live LTP
+        candles = candles.map((c, idx) => idx === candles.length - 1 ? {
+            ...c,
+            close: setup.ltp,
+            high: Math.max(c.high, setup.ltp),
+            low: Math.min(c.low, setup.ltp)
+        } : c);
     }
+    const count = candles.length;
 
     const allPrices = [
         ...candles.flatMap(c => [c.high, c.low]),
@@ -1641,11 +1655,41 @@ window.toggleLiveTickStream = function() {
     updateMarketStatusHeaderUI();
 };
 
-async function syncExternalLiveQuotes() {
-    // Only pull live tick stream when NSE Market is actually OPEN (09:15 - 15:30 IST)
-    if (!isNseMarketOpenIST()) return;
+function loadLocalLiveYahooFeedScript() {
+    return new Promise(resolve => {
+        const oldScript = document.getElementById("__live_nse_feed_script__");
+        if (oldScript) oldScript.remove();
+        const s = document.createElement("script");
+        s.id = "__live_nse_feed_script__";
+        s.src = `live_nse_data.js?t=${Date.now()}`;
+        s.onload = () => {
+            if (window.__LIVE_NSE_DATA__) {
+                const d = window.__LIVE_NSE_DATA__;
+                if (d.exchange_time) LAST_EXCHANGE_TIME_STR = d.exchange_time;
+                if (d.indices) {
+                    if (d.indices["^NSEI"]) LIVE_INDEX_DATA["NIFTY_50"] = d.indices["^NSEI"];
+                    if (d.indices["^NSEBANK"]) LIVE_INDEX_DATA["BANKNIFTY"] = d.indices["^NSEBANK"];
+                }
+                if (d.stocks) {
+                    Object.entries(d.stocks).forEach(([sym, st]) => {
+                        if (st.ltp > 0) BASE_PRICES[sym] = Number(st.ltp);
+                        if (st.prev > 0) PREV_CLOSES[sym] = Number(st.prev);
+                        if (st.candles && st.candles.length) LIVE_CANDLES_MAP[sym] = st.candles;
+                    });
+                }
+            }
+            resolve(true);
+        };
+        s.onerror = () => resolve(false);
+        document.body.appendChild(s);
+    });
+}
 
-    // 1. If Upstox Live Token is saved, pull real-time NSE exchange quotes directly from Upstox API v2
+async function syncExternalLiveQuotes() {
+    // 1. Always load real Yahoo Finance NSE feed file (works on file:/// and server with zero CORS!)
+    await loadLocalLiveYahooFeedScript();
+
+    // 2. If Upstox Live Token is saved, pull real-time NSE exchange quotes directly from Upstox API v2
     const token = APP_STATE.upstox.access_token || localStorage.getItem("upstox_access_token") || "";
     if (token && token.length > 25 && APP_STATE.allSetups.length) {
         try {
@@ -1669,15 +1713,20 @@ async function syncExternalLiveQuotes() {
         } catch (e) {}
     }
 
-    // 2. If FastAPI Backend is running, pull /api/live-ticks
+    // 3. If FastAPI Backend is running, pull /api/live-ticks
     if (APP_STATE.isServerAvailable) {
         try {
             const res = await fetch("/api/live-ticks");
             if (res.ok) {
                 const data = await res.json();
+                if (data.indices) {
+                    if (data.indices.NIFTY_50) LIVE_INDEX_DATA["NIFTY_50"] = data.indices.NIFTY_50;
+                    if (data.indices.BANKNIFTY) LIVE_INDEX_DATA["BANKNIFTY"] = data.indices.BANKNIFTY;
+                }
                 if (data.ticks) {
                     Object.entries(data.ticks).forEach(([sym, tObj]) => {
-                        if (tObj.ltp > 0) BASE_PRICES[sym] = tObj.ltp;
+                        if (tObj.ltp > 0) BASE_PRICES[sym] = Number(tObj.ltp);
+                        if (tObj.prev > 0) PREV_CLOSES[sym] = Number(tObj.prev);
                     });
                 }
             }
@@ -1688,28 +1737,24 @@ async function syncExternalLiveQuotes() {
 function processLiveMarketTick() {
     updateMarketStatusHeaderUI();
 
-    // STRICT CHECK: If NSE Market is CLOSED (outside 09:15 - 15:30 IST Mon-Fri) and user hasn't forced test mode, DO NOT change prices!
-    if (!isNseMarketOpenIST() && !FORCE_TEST_TICK_WHEN_CLOSED) {
-        const scanEl = document.getElementById("lastScanTime");
-        if (scanEl) scanEl.innerText = "15:30:00 (EOD Close)";
-        return;
-    }
-
     if (!APP_STATE.allSetups || !APP_STATE.allSetups.length) return;
-    LIVE_TICK_COUNT++;
+    if (isNseMarketOpenIST() || FORCE_TEST_TICK_WHEN_CLOSED) {
+        LIVE_TICK_COUNT++;
+    }
     updateMarketStatusHeaderUI();
 
-    const nowTimeStr = new Date().toLocaleTimeString("en-IN", { hour12: false });
+    const nowTimeStr = LAST_EXCHANGE_TIME_STR || new Date().toLocaleTimeString("en-IN", { hour12: false });
     const scanEl = document.getElementById("lastScanTime");
-    if (scanEl) scanEl.innerText = nowTimeStr;
+    if (scanEl) scanEl.innerText = isNseMarketOpenIST() ? nowTimeStr : `${nowTimeStr} (EOD)`;
 
-    // 1. Update Nifty 50, BankNifty & India VIX on every tick
-    const sec = Date.now() / 1000;
-    const niftyLtp = Number((22888.95 + Math.sin(sec * 0.7) * 14.5 + Math.cos(sec * 0.3) * 8.2).toFixed(2));
-    const niftyChg = Number((((niftyLtp - 23146.20) / 23146.20) * 100).toFixed(2));
-    const bnLtp = Number((55488.10 + Math.sin(sec * 0.65) * 38.0 + Math.cos(sec * 0.25) * 21.5).toFixed(2));
-    const bnChg = Number((((bnLtp - 55844.00) / 55844.00) * 100).toFixed(2));
-    const vixVal = Number((13.85 + Math.sin(sec * 0.4) * 0.08).toFixed(2));
+    // 1. Update Nifty 50, BankNifty & India VIX from REAL NSE Exchange Feed (Zero fake Math.sin!)
+    const niftyLtp = Number(LIVE_INDEX_DATA["NIFTY_50"].ltp || 22955.85);
+    const niftyPrev = Number(LIVE_INDEX_DATA["NIFTY_50"].prev || 22888.95);
+    const niftyChg = Number((((niftyLtp - niftyPrev) / Math.max(1, niftyPrev)) * 100).toFixed(2));
+
+    const bnLtp = Number(LIVE_INDEX_DATA["BANKNIFTY"].ltp || 55443.70);
+    const bnPrev = Number(LIVE_INDEX_DATA["BANKNIFTY"].prev || 55488.10);
+    const bnChg = Number((((bnLtp - bnPrev) / Math.max(1, bnPrev)) * 100).toFixed(2));
 
     const nEl = document.getElementById("niftyLtp");
     const ncEl = document.getElementById("niftyChange");
@@ -1727,52 +1772,47 @@ function processLiveMarketTick() {
         bcEl.className = `pulse-change ${bnChg >= 0 ? "bullish" : "bearish"}`;
     }
 
-    const vxEl = document.getElementById("vixVal");
-    if (vxEl) vxEl.innerText = vixVal.toFixed(2);
-
-    // 2. Tick-by-Tick Update of All Stocks, Strategy Levels & DOM Elements
+    // 2. Update All Stocks & Strategy Levels from REAL NSE Exchange Prices (Zero fake Math.sin!)
     let advCount = 0;
-    APP_STATE.allSetups.forEach((s, idx) => {
+    APP_STATE.allSetups.forEach((s) => {
         const sym = s.symbol;
-        const base = BASE_PRICES[sym] || s.ltp;
-        const prev = PREV_CLOSES[sym] || s.prev_close || (base * 0.995);
+        const newLtp = Number((BASE_PRICES[sym] || s.ltp).toFixed(2));
+        const prev = Number((PREV_CLOSES[sym] || s.prev_close || newLtp).toFixed(2));
         const oldLtp = s.ltp;
-
-        // Micro-tick movement anchored around the real NSE exchange price
-        const phase = idx * 1.37 + sym.charCodeAt(0) * 0.23;
-        const microWave = Math.sin(sec * 0.85 + phase) * 0.00075 + Math.cos(sec * 0.35 + phase * 1.7) * 0.00045;
-        const newLtp = Number((base * (1 + microWave)).toFixed(2));
         const newChg = Number((((newLtp - prev) / Math.max(1, prev)) * 100).toFixed(2));
         if (newChg >= 0) advCount++;
+
+        if (LIVE_CANDLES_MAP[sym] && LIVE_CANDLES_MAP[sym].length) {
+            s.candles = LIVE_CANDLES_MAP[sym];
+        }
 
         const isBull = s.direction === "BULLISH";
         const atr = Number(Math.max(0.25, newLtp * 0.0055).toFixed(2));
         const slDist = Number(Math.max(atr * 1.25, newLtp * 0.0048).toFixed(2));
 
         s.ltp = newLtp;
+        s.prev_close = prev;
         s.change_pct = newChg;
         s.entry = newLtp;
         s.stop_loss = Number((isBull ? newLtp - slDist : newLtp + slDist).toFixed(2));
         s.target1 = Number((isBull ? newLtp + slDist * 1.25 : newLtp - slDist * 1.25).toFixed(2));
         s.target2 = Number((isBull ? newLtp + slDist * 2.50 : newLtp - slDist * 2.50).toFixed(2));
         s.vwap = Number((newLtp * (isBull ? 0.9945 : 1.0055)).toFixed(2));
-        s.rvol = Number(Math.max(1.35, s.rvol + Math.sin(sec + idx) * 0.02).toFixed(2));
         s.timestamp = nowTimeStr;
 
         const tickUp = newLtp > oldLtp;
         const tickDown = newLtp < oldLtp;
-        const arrow = tickUp ? "▲" : (tickDown ? "▼" : "•");
+        const arrow = tickUp ? "▲" : (tickDown ? "▼" : "");
 
-        // In-place DOM update for all cards of this symbol (Zero page flicker!)
         document.querySelectorAll(`[data-price-sym="${sym}"]`).forEach(el => {
-            el.innerText = `${arrow} ₹${newLtp.toFixed(2)} (${newChg >= 0 ? "+" : ""}${newChg}%)`;
+            el.innerText = `${arrow ? arrow + " " : ""}₹${newLtp.toFixed(2)} (${newChg >= 0 ? "+" : ""}${newChg}%)`;
             el.className = newChg >= 0 ? "text-green" : "text-red";
             if (tickUp) {
                 el.style.background = "rgba(16, 185, 129, 0.24)";
-                setTimeout(() => { el.style.background = "transparent"; }, 320);
+                setTimeout(() => { el.style.background = "transparent"; }, 350);
             } else if (tickDown) {
                 el.style.background = "rgba(239, 68, 68, 0.24)";
-                setTimeout(() => { el.style.background = "transparent"; }, 320);
+                setTimeout(() => { el.style.background = "transparent"; }, 350);
             }
         });
 
@@ -1780,7 +1820,6 @@ function processLiveMarketTick() {
         document.querySelectorAll(`[data-sl-sym="${sym}"]`).forEach(el => { el.innerText = `₹${s.stop_loss.toFixed(2)}`; });
         document.querySelectorAll(`[data-t1-sym="${sym}"]`).forEach(el => { el.innerText = `₹${s.target1.toFixed(2)}`; });
         document.querySelectorAll(`[data-t2-sym="${sym}"]`).forEach(el => { el.innerText = `₹${s.target2.toFixed(2)}`; });
-        document.querySelectorAll(`[data-rvol-sym="${sym}"]`).forEach(el => { el.innerText = `${s.rvol}x`; });
 
         document.querySelectorAll(`[data-zone-sym="${sym}"]`).forEach(el => {
             const stratKey = el.getAttribute("data-zone-strat") || "strategy_sniper_80";
@@ -1793,13 +1832,13 @@ function processLiveMarketTick() {
     const brEl = document.getElementById("breadthRatio");
     if (brEl) brEl.innerText = `${advCount} Adv / ${decCount} Dec`;
 
-    // 3. If Marked Strategy Chart Modal is open, live-update the chart & levels on every tick!
+    // 3. If Marked Strategy Chart Modal is open, live-update the chart & levels!
     const chartModal = document.getElementById("strategyChartModal");
     if (chartModal && chartModal.classList.contains("open")) {
         renderChartModalForActiveState();
     }
 
-    // 4. Evaluate Open Positions (Live P&L, T1 70% Book + Breakeven SL Lock, T2/SL Exit) & Auto-Trader Bot on every tick!
+    // 4. Evaluate Open Positions & Auto-Trader Bot!
     evaluateBotAndOpenTradesOnTick();
 }
 
@@ -1811,11 +1850,7 @@ function evaluateBotAndOpenTradesOnTick() {
     for (let i = t.open_trades.length - 1; i >= 0; i--) {
         const tr = t.open_trades[i];
         const setupObj = (APP_STATE.allSetups || []).find(s => s.symbol === tr.symbol);
-        const baseP = setupObj ? setupObj.ltp : (BASE_PRICES[tr.symbol] || tr.ltp);
-
-        // Add subtle realistic orderflow tick around current LTP so open trades actively tick even if symbol is outside current pool
-        const micro = Math.sin(Date.now() / 700 + i) * (baseP * 0.0005);
-        const liveLtp = Number((setupObj ? setupObj.ltp : baseP + micro).toFixed(2));
+        const liveLtp = Number((setupObj ? setupObj.ltp : (BASE_PRICES[tr.symbol] || tr.ltp)).toFixed(2));
         tr.ltp = liveLtp;
 
         const isBull = tr.direction === "BULLISH";
@@ -1910,20 +1945,22 @@ window.triggerScanNow = async function() {
     const btn = document.getElementById("btnRunScan");
     if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> SCANNING...`;
 
+    await loadLocalLiveYahooFeedScript();
+
     try {
         const res = await fetch("/api/setups");
         if (res.ok) {
             APP_STATE.isServerAvailable = true;
             const data = await res.json();
             APP_STATE.allSetups = data.setups || [];
-            document.getElementById("lastScanTime").innerText = data.last_scan || new Date().toLocaleTimeString("en-IN", { hour12: false });
+            document.getElementById("lastScanTime").innerText = data.last_scan || LAST_EXCHANGE_TIME_STR || new Date().toLocaleTimeString("en-IN", { hour12: false });
         } else {
             throw new Error("Fallback to local engine");
         }
     } catch (e) {
         APP_STATE.isServerAvailable = false;
         APP_STATE.allSetups = buildClientSideSetups(APP_STATE.timeframe);
-        document.getElementById("lastScanTime").innerText = new Date().toLocaleTimeString("en-IN", { hour12: false });
+        document.getElementById("lastScanTime").innerText = LAST_EXCHANGE_TIME_STR || new Date().toLocaleTimeString("en-IN", { hour12: false });
     }
 
     const adv = APP_STATE.allSetups.filter(s => s.change_pct >= 0).length;

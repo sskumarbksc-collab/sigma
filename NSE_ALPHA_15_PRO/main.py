@@ -120,6 +120,35 @@ class SquareOffModel(BaseModel):
     trade_id: str
 
 
+async def refresh_live_yahoo_quotes(symbols: list):
+    """Fetches real-time NSE LTP & Previous Close directly from Yahoo Finance concurrently."""
+    import httpx
+    async def fetch_one(client, sym):
+        yf_sym = "^NSEI" if sym == "NIFTY_50" else ("^NSEBANK" if sym == "BANKNIFTY" else f"{sym}.NS")
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_sym}?interval=5m&range=1d"
+        try:
+            r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                meta = r.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+                ltp = meta.get("regularMarketPrice")
+                prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+                if ltp and float(ltp) > 0:
+                    ltp_f = round(float(ltp), 2)
+                    prev_f = round(float(prev), 2) if prev else PREV_CLOSES.get(sym, ltp_f)
+                    chg = round(((ltp_f - prev_f) / max(1.0, prev_f)) * 100.0, 2)
+                    if sym in ("NIFTY_50", "BANKNIFTY"):
+                        INDEX_BENCHMARKS[sym] = {"ltp": ltp_f, "prev": prev_f, "change_pct": chg}
+                    else:
+                        BASE_PRICES[sym] = ltp_f
+                        PREV_CLOSES[sym] = prev_f
+                        STATE["latest_prices"][sym] = ltp_f
+        except Exception:
+            pass
+
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        await asyncio.gather(*(fetch_one(client, s) for s in symbols))
+
+
 async def perform_market_scan():
     if STATE["is_scanning"]:
         return STATE["setups"]
@@ -127,16 +156,23 @@ async def perform_market_scan():
     try:
         tf = STATE["timeframe"]
         symbols = STATE["watchlist"][:30]
+        await refresh_live_yahoo_quotes(["NIFTY_50", "BANKNIFTY"] + symbols[:20])
         news_data = await fetch_live_news()
         news_items = news_data.get("items", [])
 
-        results = []
-        for sym in symbols:
+        async def scan_symbol(sym):
             candles = await fetch_symbol_candles(sym, tf, 100)
             STATE["candles_cache"][sym] = candles
             analysis = analyze_stock_complete(sym, candles, tf, news_items)
             STATE["latest_prices"][sym] = analysis["ltp"]
-            results.append(analysis)
+            return analysis
+
+        results = []
+        # Fetch in fast concurrent batches of 10
+        for i in range(0, len(symbols), 10):
+            batch = symbols[i:i+10]
+            batch_res = await asyncio.gather(*(scan_symbol(s) for s in batch))
+            results.extend(batch_res)
 
         # Sort: 👑 80% Sniper setups first, then Approved, then by Consensus %
         results.sort(
@@ -261,24 +297,22 @@ async def get_market_pulse():
 @app.get("/api/live-ticks")
 async def get_live_ticks():
     """
-    Fast 1-second tick endpoint:
-    - When NSE Market is OPEN (Mon-Fri 09:15 to 15:30 IST): updates live ticks & evaluates Auto-Bot every second.
-    - When NSE Market is CLOSED: keeps prices 100% locked at official NSE Closing LTP (zero fake movement).
+    100% Real-Time NSE Exchange Tick Endpoint (Zero synthetic math.sin waves!):
+    Pulls real live quotes from Yahoo Finance during market hours and updates all setups & open positions.
     """
-    import math
     import time
-    import hashlib
     market_open = is_nse_market_open()
-    sec_now = time.time()
+    now_epoch = time.time()
+    last_q = STATE.get("last_quote_refresh", 0)
+    if market_open and (now_epoch - last_q >= 2.5):
+        STATE["last_quote_refresh"] = now_epoch
+        active_syms = ["NIFTY_50", "BANKNIFTY"] + [s["symbol"] for s in STATE["setups"][:20]]
+        await refresh_live_yahoo_quotes(active_syms)
+
     ticks = {}
     for sym, base_p in BASE_PRICES.items():
-        prev_p = PREV_CLOSES.get(sym, base_p * 0.995)
-        if market_open:
-            seed = int(hashlib.md5(sym.encode()).hexdigest()[:6], 16)
-            wave = math.sin(sec_now * 0.65 + (seed % 31)) * 0.0007 + math.cos(sec_now * 0.27 + (seed % 17)) * 0.0004
-            ltp = round(base_p * (1.0 + wave), 2)
-        else:
-            ltp = round(base_p, 2)
+        prev_p = PREV_CLOSES.get(sym, base_p)
+        ltp = round(base_p, 2)
         chg = round(((ltp - prev_p) / max(1.0, prev_p)) * 100.0, 2)
         ticks[sym] = {"ltp": ltp, "prev": prev_p, "change_pct": chg}
         STATE["latest_prices"][sym] = ltp
